@@ -1,0 +1,55 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE/editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build/test cache
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Local logs
+*.log
+
+# Model/checkpoint artifacts
+*.pth
+*.pt
+*.bin
+*.safetensors
+
+# Numpy/feature artifacts
+*.npy
+*.npz
+
+# Media artifacts
+*.mp4
+*.mkv
+*.avi
+*.wav
+
+# Runtime outputs
+outputs/
+inference/outputs/
+inference/inference/outputs/
+
+# Temporary files
+*.tmp
+*.bak

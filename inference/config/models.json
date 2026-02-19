@@ -1,0 +1,13 @@
+{
+  "models": [
+    {
+      "id": "qwen2_vl_awq_default",
+      "label": "Qwen2-VL-7B-Instruct-AWQ (Default)",
+      "model_type": "qwen_vl",
+      "hf_path_or_local_path": "Qwen/Qwen2-VL-7B-Instruct-AWQ",
+      "dtype": "float16",
+      "device_map": "auto",
+      "enabled": true
+    }
+  ]
+}

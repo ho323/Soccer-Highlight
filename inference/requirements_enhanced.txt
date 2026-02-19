@@ -1,0 +1,9 @@
+transformers>=4.37.0
+accelerate
+autoawq
+sentence-transformers
+opencv-python
+Pillow
+gradio>=4.0.0
+ffmpy
+numpy
