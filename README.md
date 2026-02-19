@@ -73,7 +73,7 @@ python inference/app.py
 python inference/enhanced_highlight_generator.py \
   --video_path inference/1_720p.mkv \
   --model_name CALF_benchmark \
-  --vlm_model_id qwen2_vl_awq_default \
+  --vlm_model_id qwen3_vl_7b_default \
   --search_engine hybrid \
   --hybrid_alpha 0.7 \
   --enable_tts \
@@ -91,10 +91,10 @@ python inference/enhanced_highlight_generator.py \
 {
   "models": [
     {
-      "id": "qwen2_vl_awq_default",
-      "label": "Qwen2-VL-7B-Instruct-AWQ (Default)",
+      "id": "qwen3_vl_7b_default",
+      "label": "Qwen3-VL-7B (Default)",
       "model_type": "qwen_vl",
-      "hf_path_or_local_path": "Qwen/Qwen2-VL-7B-Instruct-AWQ",
+      "hf_path_or_local_path": "Qwen/Qwen3-VL-7B",
       "dtype": "float16",
       "device_map": "auto",
       "enabled": true

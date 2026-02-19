@@ -6,10 +6,10 @@ from typing import Dict, List, Optional
 DEFAULT_MODELS = {
     "models": [
         {
-            "id": "qwen2_vl_awq_default",
-            "label": "Qwen2-VL-7B-Instruct-AWQ (Default)",
+            "id": "qwen3_vl_7b_default",
+            "label": "Qwen3-VL-7B (Default)",
             "model_type": "qwen_vl",
-            "hf_path_or_local_path": "Qwen/Qwen2-VL-7B-Instruct-AWQ",
+            "hf_path_or_local_path": "Qwen/Qwen3-VL-7B",
             "dtype": "float16",
             "device_map": "auto",
             "enabled": True,
