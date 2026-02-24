@@ -1,10 +1,10 @@
 {
   "models": [
     {
-      "id": "qwen3_vl_7b_default",
-      "label": "Qwen3-VL-7B (Default)",
+      "id": "qwen2vl_soccer_merged_local",
+      "label": "Qwen2VL Soccer Merged (Local)",
       "model_type": "qwen_vl",
-      "hf_path_or_local_path": "Qwen/Qwen3-VL-7B",
+      "hf_path_or_local_path": "C:/Models/qwen2vl_soccer_merged",
       "dtype": "float16",
       "device_map": "auto",
       "enabled": true

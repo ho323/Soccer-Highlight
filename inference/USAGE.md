@@ -12,7 +12,7 @@ pip install -r inference/requirements_enhanced.txt
 python inference/enhanced_highlight_generator.py \
   --video_path inference/1_720p.mkv \
   --model_name CALF_benchmark \
-  --vlm_model_id qwen3_vl_7b_default \
+  --vlm_model_id qwen2vl_soccer_merged_local \
   --search_engine hybrid \
   --hybrid_alpha 0.7 \
   --enable_tts \
