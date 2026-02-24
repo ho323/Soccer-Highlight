@@ -1,4 +1,6 @@
 import logging
+import json
+import os
 from typing import List
 
 import torch
@@ -21,6 +23,20 @@ class QwenVLBackend(SceneDescriberBackend):
             return
 
         model_id = self.model_config["hf_path_or_local_path"]
+        if os.path.isdir(model_id):
+            preprocessor_config = os.path.join(model_id, "preprocessor_config.json")
+            processor_config = os.path.join(model_id, "processor_config.json")
+            if not os.path.exists(preprocessor_config) and os.path.exists(processor_config):
+                logger.warning(
+                    "preprocessor_config.json not found. Creating from processor_config.json: %s",
+                    model_id,
+                )
+                with open(processor_config, "r", encoding="utf-8") as f:
+                    processor_data = json.load(f)
+                image_processor_data = processor_data.get("image_processor", processor_data)
+                with open(preprocessor_config, "w", encoding="utf-8") as f:
+                    json.dump(image_processor_data, f, ensure_ascii=False, indent=2)
+
         dtype_name = self.model_config.get("dtype", "float16")
         dtype = torch.float16 if dtype_name == "float16" else torch.float32
         device_map = self.model_config.get("device_map", "auto")
@@ -30,11 +46,27 @@ class QwenVLBackend(SceneDescriberBackend):
 
         from transformers import AutoModelForVision2Seq, AutoProcessor
 
-        self.processor = AutoProcessor.from_pretrained(
-            model_id,
-            min_pixels=28 * 28 * 4,
-            max_pixels=28 * 28 * 256,
-        )
+        try:
+            self.processor = AutoProcessor.from_pretrained(
+                model_id,
+                min_pixels=28 * 28 * 4,
+                max_pixels=28 * 28 * 256,
+            )
+        except TypeError as e:
+            # Some local Qwen2-VL exports include processor_config.json fields
+            # that collide with AutoProcessor argument binding.
+            if "multiple values for argument 'image_processor'" not in str(e):
+                raise
+            from transformers import AutoTokenizer
+            from transformers.models.qwen2_vl import Qwen2VLImageProcessor, Qwen2VLProcessor
+
+            logger.warning(
+                "AutoProcessor init failed due to processor config collision. Falling back to manual Qwen2VLProcessor assembly."
+            )
+            tokenizer = AutoTokenizer.from_pretrained(model_id, use_fast=True)
+            image_processor = Qwen2VLImageProcessor.from_pretrained(model_id)
+            self.processor = Qwen2VLProcessor(image_processor=image_processor, tokenizer=tokenizer)
+
         self.model = AutoModelForVision2Seq.from_pretrained(
             model_id,
             torch_dtype=dtype,
