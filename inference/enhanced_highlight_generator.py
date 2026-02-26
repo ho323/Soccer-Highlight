@@ -5,8 +5,11 @@ from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 from datetime import datetime
 from typing import Dict, List, Optional
 
+import ffmpy
+
 from gpu_memory_manager import gpu_phase
 from highlight_generator import HighlightGenerator, get_available_events
+from path_utils import default_highlight_output_dir
 from result_writer import InferenceResultWriter
 from scene_describer import SceneDescriber
 from scene_search import SceneSearchEngine
@@ -20,7 +23,7 @@ class EnhancedHighlightGenerator:
         self,
         video_path: str,
         model_name: str = "CALF_benchmark",
-        output_dir: str = "inference/outputs/highlights",
+        output_dir: str = default_highlight_output_dir(),
         num_features: int = 512,
         framerate: int = 2,
         chunk_size: int = 120,
@@ -71,6 +74,100 @@ class EnhancedHighlightGenerator:
         self.tts_entries: List[Dict] = []
         self.latest_result_path: str = ""
 
+    @staticmethod
+    def _format_mmss(seconds: float) -> str:
+        s = max(0, int(seconds))
+        return f"{s // 60:02d}:{s % 60:02d}"
+
+    def _fallback_descriptions_from_events(self, events: List[Dict], clip_paths: List[str]) -> List[Dict]:
+        rows: List[Dict] = []
+        count = min(len(events), len(clip_paths))
+        for i in range(count):
+            ev = events[i]
+            ts = float(ev.get("timestamp", 0.0))
+            et = ev.get("event_type", "Unknown")
+            rows.append(
+                {
+                    "clip_index": i,
+                    "clip_path": clip_paths[i],
+                    "timestamp": ts,
+                    "event_type": et,
+                    "confidence": float(ev.get("confidence", 0.0)),
+                    "description": f"{et} scene at {self._format_mmss(ts)}.",
+                    "language": "en",
+                    "model_id": "event_fallback",
+                    "prompt_version": "fallback_v1",
+                }
+            )
+        return rows
+
+    @staticmethod
+    def _filter_overlapping_events(events: List[Dict], before_event: float, after_event: float) -> List[Dict]:
+        if not events:
+            return []
+
+        def interval(ev: Dict):
+            ts = float(ev.get("timestamp", 0.0))
+            return max(0.0, ts - before_event), ts + after_event
+
+        # Greedy by confidence: keep highest-confidence event among overlapping windows.
+        ranked = sorted(events, key=lambda e: float(e.get("confidence", 0.0)), reverse=True)
+        selected: List[Dict] = []
+        selected_intervals = []
+
+        for ev in ranked:
+            s, e = interval(ev)
+            overlapped = False
+            for ss, ee in selected_intervals:
+                if not (e <= ss or s >= ee):
+                    overlapped = True
+                    break
+            if overlapped:
+                continue
+            selected.append(ev)
+            selected_intervals.append((s, e))
+
+        selected.sort(key=lambda e: float(e.get("timestamp", 0.0)))
+        return selected
+
+    def _mix_tts_into_clips(self, clip_paths: List[str], tts_entries: List[Dict]) -> List[str]:
+        if not clip_paths or not tts_entries:
+            return clip_paths
+
+        mixed_paths: List[str] = []
+        out_dir = os.path.join(self.output_dir, "clips_tts")
+        os.makedirs(out_dir, exist_ok=True)
+
+        for i, clip_path in enumerate(clip_paths):
+            audio_path = ""
+            if i < len(tts_entries):
+                audio_path = tts_entries[i].get("audio_path", "")
+            if not audio_path or not os.path.exists(audio_path):
+                mixed_paths.append(clip_path)
+                continue
+
+            mixed_path = os.path.join(out_dir, f"clip_tts_{i:04d}.mp4")
+            try:
+                ff = ffmpy.FFmpeg(
+                    inputs={clip_path: None, audio_path: None},
+                    outputs={
+                        mixed_path: (
+                            '-filter_complex "[0:a]volume=0.22[a0];[1:a]volume=1.0[a1];'
+                            '[a0][a1]amix=inputs=2:duration=first:dropout_transition=0[aout]" '
+                            '-map 0:v -map "[aout]" -c:v copy -c:a aac -y'
+                        )
+                    },
+                )
+                ff.run()
+                if os.path.exists(mixed_path):
+                    mixed_paths.append(mixed_path)
+                else:
+                    mixed_paths.append(clip_path)
+            except Exception:
+                mixed_paths.append(clip_path)
+
+        return mixed_paths
+
     def set_search_engine(self, engine_type: str, hybrid_alpha: Optional[float] = None):
         self.search_engine_type = engine_type
         if hybrid_alpha is not None:
@@ -102,6 +199,7 @@ class EnhancedHighlightGenerator:
             "highlight_path": "",
             "index_ready": False,
             "inference_result_path": "",
+            "warnings": [],
         }
 
         with gpu_phase("Phase 1-2: Feature Extraction + CALF Inference"):
@@ -109,6 +207,19 @@ class EnhancedHighlightGenerator:
                 confidence_threshold=confidence_threshold,
                 event_types=event_types,
             )
+            original_count = len(self.events)
+            self.events = self._filter_overlapping_events(
+                self.events,
+                before_event=before_event,
+                after_event=after_event,
+            )
+            if len(self.events) < original_count:
+                logger.info(
+                    "Removed %s overlapping events by confidence-based filtering (%s -> %s).",
+                    original_count - len(self.events),
+                    original_count,
+                    len(self.events),
+                )
             result["events"] = self.events
             if not self.events:
                 logger.warning("No events detected. Stopping.")
@@ -130,15 +241,27 @@ class EnhancedHighlightGenerator:
             result["highlight_path"] = self.highlight_gen.merge_clips(self.clip_paths, output_filename)
 
         if not skip_description:
-            with gpu_phase("Phase 4: VLM Description"):
-                self.descriptions = self.describer.describe_all_clips(
-                    events=self.events,
-                    clip_paths=self.clip_paths,
-                    language_signal=query_signal,
-                )
-                self.describer.save_descriptions(self.descriptions)
-                result["descriptions"] = self.descriptions
+            try:
+                with gpu_phase("Phase 4: VLM Description"):
+                    self.descriptions = self.describer.describe_all_clips(
+                        events=self.events,
+                        clip_paths=self.clip_paths,
+                        language_signal=query_signal,
+                    )
+                    self.describer.save_descriptions(self.descriptions)
+                    result["descriptions"] = self.descriptions
+            except Exception as exc:
+                msg = f"Description phase skipped due to error: {exc}"
+                logger.warning(msg)
+                result["warnings"].append(msg)
+                self.descriptions = []
+            finally:
                 self.describer.unload_model()
+
+            if not self.descriptions:
+                self.descriptions = self._fallback_descriptions_from_events(self.events, self.clip_paths)
+                result["descriptions"] = self.descriptions
+                result["warnings"].append("Using fallback event-based descriptions for search/TTS.")
 
             with gpu_phase("Phase 5: Search Index Build"):
                 self.search_engine.build_index(self.descriptions)
@@ -149,6 +272,20 @@ class EnhancedHighlightGenerator:
                 with gpu_phase("Phase 6: Description TTS"):
                     self.tts_entries = self.tts.generate_for_descriptions(self.descriptions)
                     result["tts"] = self.tts_entries
+
+                with gpu_phase("Phase 7: TTS Mixdown"):
+                    mixed_clip_paths = self._mix_tts_into_clips(self.clip_paths, self.tts_entries)
+                    tts_highlight = self.highlight_gen.merge_clips(mixed_clip_paths, "highlight_tts.mp4")
+                    if tts_highlight and os.path.exists(tts_highlight):
+                        result["highlight_path"] = tts_highlight
+                        result["warnings"].append("Highlight audio includes generated TTS narration mix.")
+        else:
+            self.descriptions = self._fallback_descriptions_from_events(self.events, self.clip_paths)
+            result["descriptions"] = self.descriptions
+            with gpu_phase("Phase 5: Search Index Build (Fallback)"):
+                self.search_engine.build_index(self.descriptions)
+                self.search_engine.save_index()
+                result["index_ready"] = True
 
         payload = self.writer.build_payload(
             video_path=self.video_path,
@@ -231,7 +368,7 @@ def main():
         formatter_class=ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("--video_path", required=True, type=str, help="Input video path")
-    parser.add_argument("--output_dir", type=str, default="inference/outputs/highlights")
+    parser.add_argument("--output_dir", type=str, default=default_highlight_output_dir())
     parser.add_argument("--output_path", type=str, default="highlight.mp4")
 
     parser.add_argument("--confidence_threshold", type=float, default=0.5)

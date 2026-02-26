@@ -49,6 +49,7 @@ htmlcov/
 outputs/
 inference/outputs/
 inference/inference/outputs/
+inference/inference/
 
 # Temporary files
 *.tmp

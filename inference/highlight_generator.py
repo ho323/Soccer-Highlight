@@ -18,6 +18,7 @@ import ffmpy
 
 from dataset import SoccerNetClipsTesting
 from model import ContextAwareModel
+from path_utils import default_highlight_output_dir
 from preprocessing import batch2long, timestamps2long, NMS
 from config.classes import EVENT_DICTIONARY_V2, INVERSE_EVENT_DICTIONARY_V2
 
@@ -33,7 +34,7 @@ class HighlightGenerator:
         self,
         video_path: str,
         model_name: str = "CALF",
-        output_dir: str = "inference/outputs/highlights",
+        output_dir: str = default_highlight_output_dir(),
         num_features: int = 512,
         framerate: int = 2,
         chunk_size: int = 120,
@@ -397,7 +398,7 @@ def main():
         '--output_dir',
         required=False,
         type=str,
-        default="inference/outputs/highlights",
+        default=default_highlight_output_dir(),
         help='출력 디렉토리'
     )
     

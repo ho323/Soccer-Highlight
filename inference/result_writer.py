@@ -3,6 +3,8 @@ import os
 from datetime import datetime
 from typing import Dict, List
 
+from path_utils import default_highlight_output_dir
+
 
 def _rel_or_abs(path: str, base: str) -> str:
     if not path:
@@ -13,8 +15,23 @@ def _rel_or_abs(path: str, base: str) -> str:
         return path
 
 
+def _to_jsonable(value):
+    if isinstance(value, dict):
+        return {k: _to_jsonable(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_to_jsonable(v) for v in value]
+    if isinstance(value, tuple):
+        return [_to_jsonable(v) for v in value]
+    if hasattr(value, "item"):
+        try:
+            return value.item()
+        except Exception:
+            pass
+    return value
+
+
 class InferenceResultWriter:
-    def __init__(self, output_dir: str = "inference/outputs/highlights"):
+    def __init__(self, output_dir: str = default_highlight_output_dir()):
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
 
@@ -77,6 +94,7 @@ class InferenceResultWriter:
 
     def save(self, payload: Dict, filename: str = "inference_result.json") -> str:
         out_path = os.path.join(self.output_dir, filename)
+        payload = _to_jsonable(payload)
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
         return out_path

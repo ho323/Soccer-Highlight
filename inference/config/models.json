@@ -2,11 +2,15 @@
   "models": [
     {
       "id": "qwen2vl_soccer_merged_local",
-      "label": "Qwen2VL Soccer Merged (Local)",
+      "label": "Qwen2VL Soccer Merged (Local, 8bit)",
       "model_type": "qwen_vl",
       "hf_path_or_local_path": "C:/Models/qwen2vl_soccer_merged",
       "dtype": "float16",
       "device_map": "auto",
+      "quantization": "",
+      "allow_cpu_offload": true,
+      "gpu_memory_ratio": 0.7,
+      "cpu_memory_gb": 48,
       "enabled": true
     }
   ]

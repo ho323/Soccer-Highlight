@@ -5,6 +5,7 @@ import wave
 from typing import Dict, List
 
 import numpy as np
+from path_utils import default_highlight_output_dir
 
 logger = logging.getLogger(__name__)
 
@@ -12,7 +13,7 @@ logger = logging.getLogger(__name__)
 class TTSGenerator:
     def __init__(
         self,
-        output_dir: str = "inference/outputs/highlights",
+        output_dir: str = default_highlight_output_dir(),
         model_id: str = "Qwen/Qwen3-TTS-12Hz-0.6B-Base",
     ):
         self.output_dir = output_dir

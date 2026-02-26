@@ -2,16 +2,22 @@ import json
 import os
 from typing import Dict, List, Optional
 
+from path_utils import default_model_registry_path
+
 
 DEFAULT_MODELS = {
     "models": [
         {
             "id": "qwen2vl_soccer_merged_local",
-            "label": "Qwen2VL Soccer Merged (Local)",
+            "label": "Qwen2VL Soccer Merged (Local, 8bit)",
             "model_type": "qwen_vl",
             "hf_path_or_local_path": "C:/Models/qwen2vl_soccer_merged",
             "dtype": "float16",
             "device_map": "auto",
+            "quantization": "",
+            "allow_cpu_offload": True,
+            "gpu_memory_ratio": 0.7,
+            "cpu_memory_gb": 48,
             "enabled": True,
         }
     ]
@@ -19,7 +25,9 @@ DEFAULT_MODELS = {
 
 
 class ModelRegistry:
-    def __init__(self, registry_path: str = "inference/config/models.json"):
+    def __init__(self, registry_path: Optional[str] = None):
+        if registry_path is None:
+            registry_path = default_model_registry_path()
         self.registry_path = registry_path
         self._data = None
 

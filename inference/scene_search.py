@@ -1,4 +1,4 @@
-import json
+﻿import json
 import logging
 import math
 import os
@@ -7,6 +7,7 @@ from collections import Counter, defaultdict
 from typing import Dict, List, Optional
 
 import numpy as np
+from path_utils import default_highlight_output_dir
 
 logger = logging.getLogger(__name__)
 TOKEN_RE = re.compile(r"[A-Za-z0-9가-힣]+")
@@ -15,7 +16,7 @@ TOKEN_RE = re.compile(r"[A-Za-z0-9가-힣]+")
 def _tokenize(text: str) -> List[str]:
     if not text:
         return []
-    return [t.lower() for t in TOKEN_RE.findall(text)]
+    return [t.lower() for t in re.findall(r"[A-Za-z0-9가-힣]+", text)]
 
 
 def _index_text(desc: Dict) -> str:
@@ -25,7 +26,7 @@ def _index_text(desc: Dict) -> str:
 class BaseSearchEngine:
     engine_name = "base"
 
-    def __init__(self, output_dir: str = "inference/outputs/highlights"):
+    def __init__(self, output_dir: str = default_highlight_output_dir()):
         self.output_dir = output_dir
         self.descriptions_dir = os.path.join(output_dir, "descriptions")
         os.makedirs(self.descriptions_dir, exist_ok=True)
@@ -55,21 +56,29 @@ class SemanticSearchEngine(BaseSearchEngine):
     engine_name = "semantic"
     embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
 
-    def __init__(self, output_dir: str = "inference/outputs/highlights"):
+    def __init__(self, output_dir: str = default_highlight_output_dir()):
         super().__init__(output_dir=output_dir)
         self.model = None
         self.embeddings = None
+        self._model_unavailable = False
 
     def _load_model(self):
-        if self.model is not None:
+        if self.model is not None or self._model_unavailable:
             return
         from sentence_transformers import SentenceTransformer
 
-        self.model = SentenceTransformer(self.embedding_model, device="cpu")
+        try:
+            self.model = SentenceTransformer(self.embedding_model, device="cpu")
+        except Exception as exc:
+            logger.warning("Semantic model unavailable. Falling back to BM25 path: %s", exc)
+            self._model_unavailable = True
 
     def build_index(self, descriptions: List[Dict]):
         super().build_index(descriptions)
         self._load_model()
+        if self._model_unavailable:
+            self.embeddings = np.zeros((0, 384), dtype=np.float32)
+            return
         texts = [_index_text(d) for d in descriptions]
         if not texts:
             self.embeddings = np.zeros((0, 384), dtype=np.float32)
@@ -85,6 +94,8 @@ class SemanticSearchEngine(BaseSearchEngine):
             return []
 
         self._load_model()
+        if self._model_unavailable or self.model is None:
+            return []
         q = self.model.encode([query], convert_to_numpy=True)
         q = q / np.maximum(np.linalg.norm(q, axis=1, keepdims=True), 1e-8)
         sims = np.dot(self.embeddings, q.T).flatten()
@@ -132,7 +143,7 @@ class SemanticSearchEngine(BaseSearchEngine):
 class BM25SearchEngine(BaseSearchEngine):
     engine_name = "bm25"
 
-    def __init__(self, output_dir: str = "inference/outputs/highlights"):
+    def __init__(self, output_dir: str = default_highlight_output_dir()):
         super().__init__(output_dir=output_dir)
         self.doc_tokens: List[List[str]] = []
         self.doc_freq = defaultdict(int)
@@ -224,7 +235,7 @@ class BM25SearchEngine(BaseSearchEngine):
 class HybridSearchEngine(BaseSearchEngine):
     engine_name = "hybrid"
 
-    def __init__(self, output_dir: str = "inference/outputs/highlights", alpha: float = 0.7):
+    def __init__(self, output_dir: str = default_highlight_output_dir(), alpha: float = 0.7):
         super().__init__(output_dir=output_dir)
         self.alpha = float(alpha)
         self.semantic = SemanticSearchEngine(output_dir=output_dir)
@@ -289,7 +300,7 @@ class HybridSearchEngine(BaseSearchEngine):
 class SceneSearchEngine:
     def __init__(
         self,
-        output_dir: str = "inference/outputs/highlights",
+        output_dir: str = default_highlight_output_dir(),
         engine_type: str = "semantic",
         hybrid_alpha: float = 0.7,
     ):
@@ -320,14 +331,54 @@ class SceneSearchEngine:
         self.engine_type = engine_type
         self.engine = self._create_engine(engine_type, self.hybrid_alpha)
 
+    def _fallback_bm25_engine(self):
+        return BM25SearchEngine(output_dir=self.output_dir)
+
     def build_index(self, descriptions: List[Dict]):
-        self.engine.build_index(descriptions)
+        try:
+            self.engine.build_index(descriptions)
+        except Exception as exc:
+            logger.warning("Primary search index build failed (%s). Falling back to BM25.", exc)
+            self.engine_type = "bm25"
+            self.engine = self._fallback_bm25_engine()
+            self.engine.build_index(descriptions)
 
     def search(self, query: str, top_k: int = 5, min_score: float = 0.0) -> List[Dict]:
-        return self.engine.search(query=query, top_k=top_k, min_score=min_score)
+        try:
+            rows = self.engine.search(query=query, top_k=top_k, min_score=min_score)
+        except Exception as exc:
+            logger.warning("Primary search failed (%s). Falling back to BM25.", exc)
+            self.engine_type = "bm25"
+            self.engine = self._fallback_bm25_engine()
+            if self.engine.load_index():
+                rows = self.engine.search(query=query, top_k=top_k, min_score=min_score)
+            else:
+                rows = []
+
+        if not rows and self.engine_type in ("semantic", "hybrid"):
+            fallback = self._fallback_bm25_engine()
+            if fallback.load_index():
+                rows = fallback.search(query=query, top_k=top_k, min_score=min_score)
+        return rows
 
     def save_index(self):
         self.engine.save_index()
 
     def load_index(self) -> bool:
+        ok = False
+        try:
+            ok = self.engine.load_index()
+        except Exception as exc:
+            logger.warning("Primary search index load failed (%s).", exc)
+            ok = False
+
+        if ok:
+            return True
+        if self.engine_type == "bm25":
+            return False
+
+        logger.warning("Falling back to BM25 index load.")
+        self.engine_type = "bm25"
+        self.engine = self._fallback_bm25_engine()
         return self.engine.load_index()
+

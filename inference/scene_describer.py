@@ -9,6 +9,7 @@ from PIL import Image
 
 from language_router import resolve_language
 from model_registry import ModelRegistry
+from path_utils import default_highlight_output_dir, default_model_registry_path
 from vlm_backends import BACKEND_BY_TYPE
 
 logger = logging.getLogger(__name__)
@@ -57,8 +58,8 @@ EVENT_CONTEXT_KO = {
 class SceneDescriber:
     def __init__(
         self,
-        output_dir: str = "inference/outputs/highlights",
-        registry_path: str = "inference/config/models.json",
+        output_dir: str = default_highlight_output_dir(),
+        registry_path: str = default_model_registry_path(),
         model_id: Optional[str] = None,
         language: str = "auto",
     ):
