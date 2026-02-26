@@ -110,24 +110,66 @@ class EnhancedHighlightGenerator:
             ts = float(ev.get("timestamp", 0.0))
             return max(0.0, ts - before_event), ts + after_event
 
-        # Greedy by confidence: keep highest-confidence event among overlapping windows.
-        ranked = sorted(events, key=lambda e: float(e.get("confidence", 0.0)), reverse=True)
+        # Keep only the highest-confidence event for overlaps of the same event_type.
+        ranked = sorted(
+            events,
+            key=lambda e: (str(e.get("event_type", "")), -float(e.get("confidence", 0.0))),
+        )
         selected: List[Dict] = []
-        selected_intervals = []
+        selected_by_type: Dict[str, List] = {}
 
         for ev in ranked:
             s, e = interval(ev)
+            event_type = str(ev.get("event_type", ""))
             overlapped = False
-            for ss, ee in selected_intervals:
+            for ss, ee in selected_by_type.get(event_type, []):
                 if not (e <= ss or s >= ee):
                     overlapped = True
                     break
             if overlapped:
                 continue
             selected.append(ev)
-            selected_intervals.append((s, e))
+            selected_by_type.setdefault(event_type, []).append((s, e))
 
         selected.sort(key=lambda e: float(e.get("timestamp", 0.0)))
+        return selected
+
+    @staticmethod
+    def _select_non_overlapping_highlight_indices(events: List[Dict], before_event: float, after_event: float) -> List[int]:
+        if not events:
+            return []
+
+        intervals = []
+        for i, ev in enumerate(events):
+            ts = float(ev.get("timestamp", 0.0))
+            intervals.append(
+                {
+                    "idx": i,
+                    "start": max(0.0, ts - before_event),
+                    "end": ts + after_event,
+                    "timestamp": ts,
+                    "confidence": float(ev.get("confidence", 0.0)),
+                }
+            )
+
+        intervals.sort(key=lambda x: x["start"])
+        selected = []
+        cursor = 0
+        n = len(intervals)
+        while cursor < n:
+            cluster = [intervals[cursor]]
+            cluster_end = intervals[cursor]["end"]
+            j = cursor + 1
+            while j < n and intervals[j]["start"] < cluster_end:
+                cluster.append(intervals[j])
+                cluster_end = max(cluster_end, intervals[j]["end"])
+                j += 1
+
+            best = max(cluster, key=lambda x: (x["confidence"], -x["timestamp"]))
+            selected.append(best["idx"])
+            cursor = j
+
+        selected.sort()
         return selected
 
     def _mix_tts_into_clips(self, clip_paths: List[str], tts_entries: List[Dict]) -> List[str]:
@@ -238,7 +280,15 @@ class EnhancedHighlightGenerator:
                 logger.warning("No clips extracted. Stopping.")
                 return result
 
-            result["highlight_path"] = self.highlight_gen.merge_clips(self.clip_paths, output_filename)
+            highlight_indices = self._select_non_overlapping_highlight_indices(
+                self.events,
+                before_event=before_event,
+                after_event=after_event,
+            )
+            highlight_clip_paths = [self.clip_paths[i] for i in highlight_indices if i < len(self.clip_paths)]
+            if not highlight_clip_paths:
+                highlight_clip_paths = self.clip_paths
+            result["highlight_path"] = self.highlight_gen.merge_clips(highlight_clip_paths, output_filename)
 
         if not skip_description:
             try:
@@ -275,7 +325,15 @@ class EnhancedHighlightGenerator:
 
                 with gpu_phase("Phase 7: TTS Mixdown"):
                     mixed_clip_paths = self._mix_tts_into_clips(self.clip_paths, self.tts_entries)
-                    tts_highlight = self.highlight_gen.merge_clips(mixed_clip_paths, "highlight_tts.mp4")
+                    highlight_indices = self._select_non_overlapping_highlight_indices(
+                        self.events,
+                        before_event=before_event,
+                        after_event=after_event,
+                    )
+                    mixed_for_highlight = [mixed_clip_paths[i] for i in highlight_indices if i < len(mixed_clip_paths)]
+                    if not mixed_for_highlight:
+                        mixed_for_highlight = mixed_clip_paths
+                    tts_highlight = self.highlight_gen.merge_clips(mixed_for_highlight, "highlight_tts.mp4")
                     if tts_highlight and os.path.exists(tts_highlight):
                         result["highlight_path"] = tts_highlight
                         result["warnings"].append("Highlight audio includes generated TTS narration mix.")
