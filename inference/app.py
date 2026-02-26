@@ -1,4 +1,5 @@
 ﻿import os
+import base64
 from typing import Dict, List, Optional
 
 import cv2
@@ -236,6 +237,17 @@ def _write_thumbnail(clip_path: str, output_path: str) -> bool:
     return bool(cv2.imwrite(output_path, frame))
 
 
+def _thumbnail_markdown_data_uri(image_path: str) -> str:
+    if not os.path.exists(image_path):
+        return ""
+    try:
+        with open(image_path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode("ascii")
+        return f"![thumb](data:image/jpeg;base64,{b64})"
+    except OSError:
+        return ""
+
+
 def _thumbnail_needs_refresh(clip_path: str, thumb_path: str) -> bool:
     if not os.path.exists(thumb_path):
         return True
@@ -275,7 +287,7 @@ def _build_result_assets(result: Dict):
         if thumb_ok:
             snippet = description_text if description_text else "No description"
             row_text = f"[{i + 1}] {time_mmss} | {event_type}\n{snippet}"
-            thumb_md = f"![thumb](file={thumb_path.replace(os.sep, '/')})"
+            thumb_md = _thumbnail_markdown_data_uri(thumb_path)
             clip_rows.append([thumb_md, row_text])
             gallery_clip_paths.append(clip_path)
 
