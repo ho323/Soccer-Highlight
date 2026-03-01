@@ -1,0 +1,10 @@
+{
+    "soccer_hybrid": {
+        "file_name": "PATH_TO_DATA/train_absolute_paths.json",
+        "formatting": "sharegpt",
+        "columns": {
+        "messages": "conversations",
+        "videos": "video"
+        }
+    }
+}
