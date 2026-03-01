@@ -1,6 +1,6 @@
-﻿# CALF Soccer Highlight Pipeline (Qwen VLM + TTS + Search)
+﻿# ⚽ CALF Soccer Highlight Pipeline (Qwen VLM + TTS + Search)
 
-## 1. 프로젝트 개요
+## 🚀 1. 프로젝트 개요 
 
 본 프로젝트는 축구 중계 영상을 입력받아 이벤트 기반 하이라이트를 자동 생성하고, 장면 검색 및 음성 내레이션까지 포함하는 멀티모달 파이프라인이다.
 
@@ -14,7 +14,7 @@
 
 ---
 
-## 2. 시스템 아키텍처
+## 🏗️ 2. 시스템 아키텍처
 
 파이프라인은 크게 6개 계층으로 구성된다.
 
@@ -32,7 +32,7 @@
 
 ---
 
-## 3. 기술 상세
+## 🔬 3. 기술 상세
 
 ### 3.1 이벤트 검출 (CALF)
 
@@ -130,7 +130,7 @@ Step 3 구성:
 
 ---
 
-## 4. 파일 구조
+## 📂 4. 파일 구조
 
 ```text
 CALF/
@@ -153,7 +153,7 @@ CALF/
 
 ---
 
-## 5. 운영 이슈 및 권장 전략
+## ⚠️ 5. 운영 이슈 및 권장 전략
 
 ### 5.1 Windows + 대형 VLM
 
@@ -176,7 +176,7 @@ CALF/
 
 ---
 
-## 6. 출력 산출물
+## 📦 6. 출력 산출물
 
 기본 경로: `inference/outputs/highlights`
 
@@ -190,7 +190,7 @@ CALF/
 
 ---
 
-## 7. 사용법 (Quick Start)
+## 🖥️ 7. 사용법 (Quick Start)
 
 ### 7.1 설치
 
@@ -233,7 +233,86 @@ python inference/enhanced_highlight_generator.py \
 - `allow_cpu_offload`, `gpu_memory_ratio`, `cpu_memory_gb`
 
 ---
+## 🛠️ 8. 모델 파인튜닝 (Qwen2-VL Fine-tuning)
 
-## 8. 라이선스
+### 8.1 환경 세팅 (Environment Setup)
+#### 0.1 LLaMA-Factory 설치
+
+```bash
+# LLaMA-Factory 레포지토리 복제
+git clone https://github.com/hiyouga/LLaMA-Factory.git
+cd LLaMA-Factory
+
+# 편집 가능한 모드로 설치 (관련 종속성 포함)
+pip install -e .[metrics,bitsandbytes,qwen]
+```
+
+#### 0.2 프로젝트 라이브러리 설치
+
+다시 본 프로젝트 폴더(`CALF`)로 돌아와 `requirements.txt`를 통해 나머지 환경을 세팅합니다.
+```bash
+cd path/to/your/CALF
+
+pip install -r requirements.txt
+```
+
+### 8.2 데이터셋 준비 (Data Preparation)
+Qwen2-VL 모델 학습을 위해 데이터셋 내의 비디오 경로를 절대 경로로 변환하고, 모델 호환을 위한 리스트 형식으로 전처리를 수행해야 합니다.
+
+#### 1.1 경로 수정 (Configuration)
+
+`scripts/setup_data.sh` 파일을 열어 `--base_folder` 부분을 본인의 데이터가 위치한 실제 절대 경로로 수정해주세요.
+
+#### 1.2 전처리 실행 (Execution)
+
+터미널에서 아래 명령어를 실행하여 데이터셋 준비를 완료합니다.
+
+```bash
+bash scripts/setup_data.sh
+```
+
+#### 1.3 LLaMA-Factory에 데이터셋 등록
+
+LLaMA-Factory가 해당 데이터셋을 인식할 수 있도록, `LLaMA-Factory/data/dataset_info.json` 파일을 열어 아래 내용을 추가하세요.
+
+이때 `"file_name"` 항목의 경로는 전처리가 완료된 `train_absolute_paths.json`의 실제 절대 경로로 수정해야 합니다.
+```bash
+{
+  "soccer_hybrid": {
+    "file_name": "PATH_TO_DATA/train_absolute_paths.json", #수정 필요
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "videos": "video"
+    }
+  }
+}
+```
+
+### 8.3 모델 학습
+`train.sh`를 실행하여 Qwen2-VL 모델의 파인튜닝을 시작합니다.
+
+```bash
+bash train.sh
+```
+
+(참고: 코랩 사용자라면 `scripts/setup_colab.py`를 사용해 속도를 높일 수 있습니다.)
+
+```bash
+# scripts/setup_colab.py 실행 예시
+!python scripts/setup_colab.py \
+    --drive_videos "/content/drive/MyDrive/clips 경로 입력" \
+    --drive_json "/content/drive/MyDrive/train_hybrid_ground_truth_final.json 경로 입력"
+```
+
+### 8.4 모델 Export
+학습이 완료된 LoRA 가중치를 `export.sh`를 통해 하나의 모델로 병합하여 저장합니다.
+
+```bash
+bash export.sh
+```
+---
+
+## 9. 라이선스
 
 Apache v2.0 (`LICENSE` 참조)
